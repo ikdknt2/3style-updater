@@ -2,10 +2,11 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>GAN接続テスト</title>
+    <title>GAN接続テスト（MAC指定版）</title>
     <style>
         body { font-family: sans-serif; text-align: center; margin-top: 50px; }
-        button { font-size: 18px; padding: 10px 20px; cursor: pointer; }
+        input { font-size: 16px; padding: 8px; width: 220px; text-align: center; }
+        button { font-size: 18px; padding: 10px 20px; cursor: pointer; margin-top: 10px; }
         #log { 
             margin: 30px auto; width: 80%; max-width: 500px; height: 200px; 
             border: 2px solid #333; padding: 10px; font-size: 24px; 
@@ -16,31 +17,51 @@
 <body>
 
     <h1>GAN スマートキューブ 接続テスト</h1>
+    
+    <div>
+        <label>MACアドレス: </label>
+        <input type="text" id="macInput" placeholder="例: AB:CD:EF:12:34:56">
+    </div>
     <button id="connectBtn">キューブに接続する</button>
+    
     <div id="status" style="margin-top: 10px; color: gray;">未接続</div>
     <div id="log"></div>
 
     <script type="module">
-        // CDNからgan-web-bluetoothを直接読み込む
         import { connectGanCube } from 'https://esm.sh/gan-web-bluetooth';
 
+        const macInput = document.getElementById('macInput');
         const connectBtn = document.getElementById('connectBtn');
         const statusDiv = document.getElementById('status');
         const logDiv = document.getElementById('log');
 
+        // 前回入力したMACアドレスがあれば自動復元
+        const savedMac = localStorage.getItem('gan_mac_address');
+        if (savedMac) {
+            macInput.value = savedMac;
+        }
+
         connectBtn.addEventListener('click', async () => {
+            const mac = macInput.value.trim();
+            if (!mac) {
+                alert('MACアドレスを入力してください');
+                return;
+            }
+
+            // 入力されたMACアドレスをブラウザに保存
+            localStorage.setItem('gan_mac_address', mac);
+
             try {
-                statusDiv.textContent = '接続中... (Bluetooth画面でキューブを選択してください)';
+                statusDiv.textContent = '接続中... (ポップアップからキューブを選択してください)';
                 
-                // キューブに接続
-                const conn = await connectGanCube();
+                // 第1引数にカスタムMACアドレス取得関数を渡す
+                const conn = await connectGanCube(async () => mac);
+                
                 statusDiv.textContent = `接続完了: ${conn.deviceName}`;
                 statusDiv.style.color = 'green';
 
-                // キューブが回されたときのイベントを受信
                 conn.events$.subscribe((event) => {
                     if (event.type === 'MOVE') {
-                        // 回された記号（例: R, U', F2）を画面に追記
                         logDiv.textContent += event.move + ' ';
                         logDiv.scrollTop = logDiv.scrollHeight;
                     }
