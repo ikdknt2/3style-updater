@@ -2,38 +2,103 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>GAN接続デバッグ</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GAN 3-Style 練習ツール</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; margin-top: 30px; background: #f4f6f8; color: #333; }
+        .card { max-width: 500px; margin: 0 auto; background: #fff; padding: 25px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        input { font-size: 16px; padding: 10px; width: 80%; max-width: 280px; text-align: center; border: 1px solid #ccc; border-radius: 6px; margin-bottom: 10px; }
+        button { font-size: 16px; padding: 10px 20px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 6px; margin: 5px; }
+        button:hover { background: #0056b3; }
+        #status { font-weight: bold; margin: 15px 0; color: #555; }
+        #logBox {
+            height: 180px; border: 1px solid #ccc; border-radius: 6px;
+            padding: 10px; font-size: 18px; font-family: monospace;
+            overflow-y: auto; background: #1e1e1e; color: #00ff00; text-align: left;
+            margin-top: 15px; word-break: break-all;
+        }
+    </style>
 </head>
 <body>
-    <h1>GAN接続デバッグ</h1>
-    <input type="text" id="macInput" value="AB:12:34:62:31:FE">
-    <button id="connectBtn">接続する</button>
-    <div id="status">未接続</div>
+
+    <div class="card">
+        <h2>GAN Cube 接続テスト</h2>
+        <div>
+            <input type="text" id="macInput" placeholder="AB:12:34:62:31:FE">
+        </div>
+        <div>
+            <button id="connectBtn">キューブに接続</button>
+        </div>
+        
+        <div id="status">ステータス: 未接続</div>
+
+        <div style="text-align: left; margin-top: 20px; display: flex; justify-content: space-between; align-items: center;">
+            <strong>回転ログ:</strong>
+            <button id="clearBtn" style="font-size: 12px; padding: 4px 8px; background: #6c757d;">クリア</button>
+        </div>
+        <div id="logBox"></div>
+    </div>
 
     <script type="module">
         import { connectGanCube } from 'https://esm.sh/gan-web-bluetooth';
 
         const macInput = document.getElementById('macInput');
         const connectBtn = document.getElementById('connectBtn');
+        const clearBtn = document.getElementById('clearBtn');
         const statusDiv = document.getElementById('status');
+        const logBox = document.getElementById('logBox');
+
+        // 前回入力したMACアドレスを復元
+        const savedMac = localStorage.getItem('gan_mac_address');
+        if (savedMac) macInput.value = savedMac;
+
+        function addLog(text) {
+            logBox.innerText += text + '\n';
+            logBox.scrollTop = logBox.scrollHeight;
+        }
+
+        clearBtn.addEventListener('click', () => {
+            logBox.innerText = '';
+        });
 
         connectBtn.addEventListener('click', async () => {
             const mac = macInput.value.trim();
-            statusDiv.textContent = '接続中...';
+            if (!mac) {
+                alert('MACアドレスを入力してください');
+                return;
+            }
+            localStorage.setItem('gan_mac_address', mac);
+
+            statusDiv.textContent = 'ステータス: 接続中... (キューブを動かしてください)';
+            addLog('Connecting to ' + mac + '...');
 
             try {
-                const conn = await connectGanCube(async () => mac);
-                statusDiv.textContent = '接続成功！キューブを回してください（F12のコンソールを確認）';
-                console.log('Cube Connected object:', conn);
+                const cube = await connectGanCube(async () => mac);
+                
+                statusDiv.textContent = 'ステータス: 接続成功！🎉';
+                statusDiv.style.color = 'green';
+                addLog('Connected successfully!');
 
-                // すべてのイベントを無条件でコンソールに出力する
-                conn.events$.subscribe((event) => {
-                    console.log('受信したイベント:', event);
+                cube.events$.subscribe({
+                    next: (event) => {
+                        console.log('Event:', event);
+                        if (event.type === 'MOVE') {
+                            addLog(`Move: ${event.move}`);
+                        } else {
+                            addLog(`Event type: ${event.type}`);
+                        }
+                    },
+                    error: (err) => {
+                        console.error('Stream error:', err);
+                        addLog(`Error: ${err.message}`);
+                    }
                 });
 
             } catch (err) {
-                console.error('接続エラー:', err);
-                statusDiv.textContent = 'エラー: ' + err.message;
+                console.error('Connection failed:', err);
+                statusDiv.textContent = 'ステータス: 接続エラー';
+                statusDiv.style.color = 'red';
+                addLog(`Failed: ${err.message}`);
             }
         });
     </script>
