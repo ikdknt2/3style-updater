@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>GAN接続テスト</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; margin-top: 50px; }
+        button { font-size: 18px; padding: 10px 20px; cursor: pointer; }
+        #log { 
+            margin: 30px auto; width: 80%; max-width: 500px; height: 200px; 
+            border: 2px solid #333; padding: 10px; font-size: 24px; 
+            overflow-y: auto; text-align: left; background: #f9f9f9;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>GAN スマートキューブ 接続テスト</h1>
+    <button id="connectBtn">キューブに接続する</button>
+    <div id="status" style="margin-top: 10px; color: gray;">未接続</div>
+    <div id="log"></div>
+
+    <script type="module">
+        // CDNからgan-web-bluetoothを直接読み込む
+        import { connectGanCube } from 'https://esm.sh/gan-web-bluetooth';
+
+        const connectBtn = document.getElementById('connectBtn');
+        const statusDiv = document.getElementById('status');
+        const logDiv = document.getElementById('log');
+
+        connectBtn.addEventListener('click', async () => {
+            try {
+                statusDiv.textContent = '接続中... (Bluetooth画面でキューブを選択してください)';
+                
+                // キューブに接続
+                const conn = await connectGanCube();
+                statusDiv.textContent = `接続完了: ${conn.deviceName}`;
+                statusDiv.style.color = 'green';
+
+                // キューブが回されたときのイベントを受信
+                conn.events$.subscribe((event) => {
+                    if (event.type === 'MOVE') {
+                        // 回された記号（例: R, U', F2）を画面に追記
+                        logDiv.textContent += event.move + ' ';
+                        logDiv.scrollTop = logDiv.scrollHeight;
+                    }
+                });
+
+            } catch (err) {
+                console.error(err);
+                statusDiv.textContent = 'エラー: ' + err.message;
+                statusDiv.style.color = 'red';
+            }
+        });
+    </script>
+</body>
+</html>
