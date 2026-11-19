@@ -2,75 +2,131 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>GAN接続テスト（MAC指定版）</title>
+    <title>3-Style 練習チェッカー（履歴表示付き）</title>
     <style>
-        body { font-family: sans-serif; text-align: center; margin-top: 50px; }
+        body { font-family: sans-serif; text-align: center; margin-top: 30px; }
         input { font-size: 16px; padding: 8px; width: 220px; text-align: center; }
-        button { font-size: 18px; padding: 10px 20px; cursor: pointer; margin-top: 10px; }
-        #log { 
-            margin: 30px auto; width: 80%; max-width: 500px; height: 200px; 
-            border: 2px solid #333; padding: 10px; font-size: 24px; 
-            overflow-y: auto; text-align: left; background: #f9f9f9;
+        button { font-size: 16px; padding: 8px 16px; cursor: pointer; margin: 5px; }
+        #statusBox { 
+            margin: 20px auto; width: 85%; max-width: 550px; padding: 20px; 
+            font-size: 20px; border-radius: 10px; background: #f0f0f0; 
+        }
+        .correct-bg { background: #d4edda !important; color: #155724; }
+        .error-bg { background: #f8d7da !important; color: #721c24; }
+        
+        /* 回した手のログ表示エリア */
+        #historyContainer {
+            margin: 20px auto; width: 85%; max-width: 550px; text-align: left;
+        }
+        #moveHistory {
+            height: 120px; border: 2px solid #ccc; border-radius: 8px;
+            padding: 10px; font-size: 22px; font-family: monospace;
+            overflow-y: auto; background: #fafafa; word-wrap: break-word;
         }
     </style>
 </head>
 <body>
 
-    <h1>GAN スマートキューブ 接続テスト</h1>
+    <h1>3-Style 練習チェッカー</h1>
     
     <div>
         <label>MACアドレス: </label>
-        <input type="text" id="macInput" placeholder="例: AB:CD:EF:12:34:56">
+        <input type="text" id="macInput" placeholder="AB:12:34:62:31:FE">
+        <button id="connectBtn">接続する</button>
     </div>
-    <button id="connectBtn">キューブに接続する</button>
-    
-    <div id="status" style="margin-top: 10px; color: gray;">未接続</div>
-    <div id="log"></div>
+
+    <div id="statusBox">
+        <div id="targetCase" style="font-size: 26px; font-weight: bold;">お題: UF - UR - UB</div>
+        <div id="targetSeq" style="font-size: 18px; color: #555; margin-top: 5px;">正解手順: R U R' U'</div>
+        <div id="judgeStatus" style="margin-top: 15px; font-weight: bold;">接続待ち...</div>
+    </div>
+
+    <div id="historyContainer">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <strong>回した手のログ:</strong>
+            <button id="clearBtn" style="font-size: 12px; padding: 4px 10px;">ログ消去</button>
+        </div>
+        <div id="moveHistory"></div>
+    </div>
 
     <script type="module">
         import { connectGanCube } from 'https://esm.sh/gan-web-bluetooth';
 
         const macInput = document.getElementById('macInput');
         const connectBtn = document.getElementById('connectBtn');
-        const statusDiv = document.getElementById('status');
-        const logDiv = document.getElementById('log');
+        const clearBtn = document.getElementById('clearBtn');
+        const statusBox = document.getElementById('statusBox');
+        const judgeStatus = document.getElementById('judgeStatus');
+        const moveHistory = document.getElementById('moveHistory');
 
-        // 前回入力したMACアドレスがあれば自動復元
+        // 前回入力したMACを復元
         const savedMac = localStorage.getItem('gan_mac_address');
-        if (savedMac) {
-            macInput.value = savedMac;
+        if (savedMac) macInput.value = savedMac;
+
+        // ログ消去ボタン
+        clearBtn.addEventListener('click', () => {
+            moveHistory.textContent = '';
+        });
+
+        // テスト用の正解手順
+        const correctMoves = ["R", "U", "R'", "U'"];
+        let currentIndex = 0;
+
+        // エラー音（ビープ音）
+        function playErrorSound() {
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = audioCtx.createOscillator();
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+            osc.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.2);
         }
 
         connectBtn.addEventListener('click', async () => {
             const mac = macInput.value.trim();
-            if (!mac) {
-                alert('MACアドレスを入力してください');
-                return;
-            }
-
-            // 入力されたMACアドレスをブラウザに保存
+            if (!mac) { alert('MACアドレスを入力してください'); return; }
             localStorage.setItem('gan_mac_address', mac);
 
             try {
-                statusDiv.textContent = '接続中... (ポップアップからキューブを選択してください)';
-                
-                // 第1引数にカスタムMACアドレス取得関数を渡す
+                judgeStatus.textContent = '接続中... キューブを少し動かしてください';
                 const conn = await connectGanCube(async () => mac);
                 
-                statusDiv.textContent = `接続完了: ${conn.deviceName}`;
-                statusDiv.style.color = 'green';
+                judgeStatus.textContent = `接続完了！「R U R' U'」を回してください`;
+                statusBox.className = '';
 
                 conn.events$.subscribe((event) => {
                     if (event.type === 'MOVE') {
-                        logDiv.textContent += event.move + ' ';
-                        logDiv.scrollTop = logDiv.scrollHeight;
+                        const move = event.move;
+                        
+                        // 1. 回した手を下のログ枠にリアルタイム追記
+                        moveHistory.textContent += move + ' ';
+                        moveHistory.scrollTop = moveHistory.scrollHeight;
+
+                        // 2. 正解手順との比較判定
+                        if (move === correctMoves[currentIndex]) {
+                            currentIndex++;
+                            if (currentIndex >= correctMoves.length) {
+                                judgeStatus.textContent = `正解！🎉 (${currentIndex}手完了)`;
+                                statusBox.className = 'correct-bg';
+                                currentIndex = 0;
+                            } else {
+                                judgeStatus.textContent = `OK！ 次は「${correctMoves[currentIndex]}」 (${currentIndex}/${correctMoves.length}手)`;
+                                statusBox.className = '';
+                            }
+                        } else {
+                            playErrorSound();
+                            judgeStatus.textContent = `❌ ミス！ 回した手: ${move} (期待: ${correctMoves[currentIndex]})`;
+                            statusBox.className = 'error-bg';
+                            currentIndex = 0;
+                        }
                     }
                 });
 
             } catch (err) {
                 console.error(err);
-                statusDiv.textContent = 'エラー: ' + err.message;
-                statusDiv.style.color = 'red';
+                judgeStatus.textContent = 'エラー: ' + err.message;
+                statusBox.className = 'error-bg';
             }
         });
     </script>
