@@ -6,23 +6,29 @@
     <title>GAN 3-Style 練習ツール</title>
     <style>
         body { font-family: sans-serif; text-align: center; margin-top: 30px; background: #f4f6f8; color: #333; }
-        .card { max-width: 500px; margin: 0 auto; background: #fff; padding: 25px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-        input { font-size: 16px; padding: 10px; width: 80%; max-width: 280px; text-align: center; border: 1px solid #ccc; border-radius: 6px; margin-bottom: 10px; }
+        .card { max-width: 600px; margin: 0 auto; background: #fff; padding: 25px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        input, select { font-size: 16px; padding: 10px; width: 80%; max-width: 280px; text-align: center; border: 1px solid #ccc; border-radius: 6px; margin-bottom: 10px; }
         button { font-size: 16px; padding: 10px 20px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 6px; margin: 5px; }
         button:hover { background: #0056b3; }
         #status { font-weight: bold; margin: 15px 0; color: #555; }
+        .target-box { background: #e9ecef; padding: 12px; border-radius: 6px; margin-bottom: 15px; font-size: 18px; font-weight: bold; }
         #logBox {
-            height: 180px; border: 1px solid #ccc; border-radius: 6px;
-            padding: 10px; font-size: 18px; font-family: monospace;
+            height: 120px; border: 1px solid #ccc; border-radius: 6px;
+            padding: 15px; font-size: 20px; font-family: monospace;
             overflow-y: auto; background: #1e1e1e; color: #00ff00; text-align: left;
-            margin-top: 15px; word-break: break-all;
+            margin-top: 15px; word-break: break-all; line-height: 1.6;
+            white-space: pre-wrap;
         }
+        .judge-result { font-size: 20px; font-weight: bold; margin-top: 15px; padding: 10px; border-radius: 6px; }
+        .judging { background: #fff3cd; color: #856404; }
+        .correct { background: #d4edda; color: #155724; }
+        .incorrect { background: #f8d7da; color: #721c24; }
     </style>
 </head>
 <body>
 
     <div class="card">
-        <h2>GAN Cube 接続テスト</h2>
+        <h2>GAN 3-Style 練習ツール</h2>
         <div>
             <input type="text" id="macInput" placeholder="AB:12:34:62:31:FE">
         </div>
@@ -32,9 +38,28 @@
         
         <div id="status">ステータス: 未接続</div>
 
+        <hr style="margin: 20px 0; border: none; border-top: 1px solid #ddd;">
+
+        <!-- 目標手順の設定エリア -->
+        <div style="text-align: left;">
+            <label><strong>目標（正解）手順:</strong></label><br>
+            <input type="text" id="targetInput" value="R U R' U'" style="width: 100%; max-width: 100%; box-sizing: border-box; margin-top: 5px; font-family: monospace;">
+        </div>
+
+        <div class="target-box">
+            目標: <span id="targetDisplay">R U R' U'</span>
+        </div>
+
+        <div id="judgeBox" class="judge-result judging">待機中... 手順を回してください</div>
+
+        <!-- 次へ進むボタン（スペースキー対応） -->
+        <div style="margin-top: 15px;">
+            <button id="nextBtn" style="background: #28a745; width: 100%; max-width: 100%; box-sizing: border-box;">次へ進む (スペースキー)</button>
+        </div>
+
         <div style="text-align: left; margin-top: 20px; display: flex; justify-content: space-between; align-items: center;">
-            <strong>回転ログ:</strong>
-            <button id="clearBtn" style="font-size: 12px; padding: 4px 8px; background: #6c757d;">クリア</button>
+            <strong>あなたの入力手順:</strong>
+            <button id="clearBtn" style="font-size: 12px; padding: 4px 8px; background: #6c757d;">リセット</button>
         </div>
         <div id="logBox"></div>
     </div>
@@ -45,21 +70,141 @@
         const macInput = document.getElementById('macInput');
         const connectBtn = document.getElementById('connectBtn');
         const clearBtn = document.getElementById('clearBtn');
+        const nextBtn = document.getElementById('nextBtn');
         const statusDiv = document.getElementById('status');
         const logBox = document.getElementById('logBox');
+        const targetInput = document.getElementById('targetInput');
+        const targetDisplay = document.getElementById('targetDisplay');
+        const judgeBox = document.getElementById('judgeBox');
 
-        // 前回入力したMACアドレスを復元
-        const savedMac = localStorage.getItem('gan_mac_address');
-        if (savedMac) macInput.value = savedMac;
+        let moveHistory = [];
+        let targetMoves = [];
 
-        function addLog(text) {
-            logBox.innerText += text + '\n';
+        function parseMovesString(str) {
+            const raw = str.trim().split(/\s+/).filter(Boolean);
+            const normalized = [];
+            for (const moveStr of raw) {
+                const parsed = parseMoveToValue(moveStr);
+                const reconstructed = valueToMove(parsed.face, parsed.val);
+                if (reconstructed) {
+                    if (normalized.length > 0) {
+                        const lastParsed = parseMoveToValue(normalized[normalized.length - 1]);
+                        if (lastParsed.face === parsed.face) {
+                            normalized.pop();
+                            const combined = valueToMove(parsed.face, lastParsed.val + parsed.val);
+                            if (combined) normalized.push(combined);
+                            continue;
+                        }
+                    }
+                    normalized.push(reconstructed);
+                }
+            }
+            return normalized;
+        }
+
+        function updateTarget() {
+            targetMoves = parseMovesString(targetInput.value);
+            targetDisplay.innerText = targetMoves.join(' ');
+            resetSession();
+        }
+
+        targetInput.addEventListener('input', updateTarget);
+        updateTarget();
+
+        function parseMoveToValue(move) {
+            const face = move[0];
+            let val = 1;
+            if (move.includes('2')) val = 2;
+            else if (move.includes("'")) val = 3;
+            return { face, val };
+        }
+
+        function valueToMove(face, val) {
+            val = ((val % 4) + 4) % 4;
+            if (val === 0) return null;
+            if (val === 1) return face;
+            if (val === 2) return face + '2';
+            if (val === 3) return face + "'";
+        }
+
+        // セッションをリセットして次の練習へ進む
+        function resetSession() {
+            moveHistory = [];
+            updateDisplay();
+            evaluateMoves();
+        }
+
+        nextBtn.addEventListener('click', resetSession);
+
+        // スペースキーで次へ進む（入力欄にフォーロカスがあるときは反応させない）
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' && document.activeElement.tagName !== 'INPUT') {
+                e.preventDefault(); // ページのスクロールを防ぐ
+                resetSession();
+            }
+        });
+
+        function evaluateMoves() {
+            if (targetMoves.length === 0) {
+                judgeBox.className = 'judge-result judging';
+                judgeBox.innerText = '目標手順を設定してください';
+                return;
+            }
+
+            let isMatchSoFar = true;
+            for (let i = 0; i < moveHistory.length; i++) {
+                if (i >= targetMoves.length || moveHistory[i] !== targetMoves[i]) {
+                    isMatchSoFar = false;
+                    break;
+                }
+            }
+
+            if (!isMatchSoFar) {
+                judgeBox.className = 'judge-result incorrect';
+                judgeBox.innerText = '❌ ミス！ (スペースキーで次へ)';
+            } else if (moveHistory.length === targetMoves.length) {
+                judgeBox.className = 'judge-result correct';
+                judgeBox.innerText = '🎉 正解！完璧です！ (スペースキーで次へ)';
+            } else {
+                judgeBox.className = 'judge-result judging';
+                judgeBox.innerText = `🔄 進行中... (${moveHistory.length} / ${targetMoves.length})`;
+            }
+        }
+
+        function addAndNormalizeMove(newMoveStr) {
+            const { face, val } = parseMoveToValue(newMoveStr);
+
+            if (moveHistory.length > 0) {
+                const lastMoveStr = moveHistory[moveHistory.length - 1];
+                const last = parseMoveToValue(lastMoveStr);
+
+                if (last.face === face) {
+                    moveHistory.pop();
+                    const combinedVal = last.val + val;
+                    const reduced = valueToMove(face, combinedVal);
+                    if (reduced) {
+                        moveHistory.push(reduced);
+                    }
+                    updateDisplay();
+                    evaluateMoves();
+                    return;
+                }
+            }
+
+            moveHistory.push(newMoveStr);
+            updateDisplay();
+            evaluateMoves();
+        }
+
+        function updateDisplay() {
+            logBox.innerText = moveHistory.join(' ');
             logBox.scrollTop = logBox.scrollHeight;
         }
 
-        clearBtn.addEventListener('click', () => {
-            logBox.innerText = '';
-        });
+        const savedMac = localStorage.getItem('gan_mac_address');
+        if (savedMac) macInput.value = savedMac;
+
+        clearBtn.addEventListener('click', resetSession);
 
         connectBtn.addEventListener('click', async () => {
             const mac = macInput.value.trim();
@@ -69,36 +214,33 @@
             }
             localStorage.setItem('gan_mac_address', mac);
 
-            statusDiv.textContent = 'ステータス: 接続中... (キューブを動かしてください)';
-            addLog('Connecting to ' + mac + '...');
+            statusDiv.textContent = 'ステータス: 接続中...';
 
             try {
                 const cube = await connectGanCube(async () => mac);
                 
-                statusDiv.textContent = 'ステータス: 接続成功！🎉';
-                statusDiv.style.color = 'green';
-                addLog('Connected successfully!');
-
                 cube.events$.subscribe({
                     next: (event) => {
-                        console.log('Event:', event);
                         if (event.type === 'MOVE') {
-                            addLog(`Move: ${event.move}`);
-                        } else {
-                            addLog(`Event type: ${event.type}`);
+                            addAndNormalizeMove(event.move);
                         }
                     },
                     error: (err) => {
                         console.error('Stream error:', err);
-                        addLog(`Error: ${err.message}`);
                     }
                 });
+
+                await cube.sendCubeCommand({ type: 'REQUEST_HARDWARE' });
+                await cube.sendCubeCommand({ type: 'REQUEST_FACELETS' });
+                await cube.sendCubeCommand({ type: 'REQUEST_BATTERY' });
+
+                statusDiv.textContent = 'ステータス: 接続成功！';
+                statusDiv.style.color = 'green';
 
             } catch (err) {
                 console.error('Connection failed:', err);
                 statusDiv.textContent = 'ステータス: 接続エラー';
                 statusDiv.style.color = 'red';
-                addLog(`Failed: ${err.message}`);
             }
         });
     </script>
